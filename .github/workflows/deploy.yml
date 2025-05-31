@@ -21,7 +21,7 @@ jobs:
 
       # === RESTAURAR Y AJUSTAR EL PASO 'Set up Docker Compose' ===
       - name: Set up Docker
-        uses: docker/setup-docker@v3
+        uses: docker/setup-docker@v2
         with:
           # Esto instalará la CLI de Docker Compose v2 y la hará accesible.
           # Asegura que docker-compose esté en el PATH.
