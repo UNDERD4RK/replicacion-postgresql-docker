@@ -18,16 +18,22 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+        # Si esta acción también empieza a fallar con "Missing download info",
+        # entonces el problema es más general y grave.
 
-      # === RESTAURAR Y AJUSTAR EL PASO 'Set up Docker Compose' ===
-      - name: Set up Docker
-        uses: docker/setup-docker@v2
-        with:
-          # Esto instalará la CLI de Docker Compose v2 y la hará accesible.
-          # Asegura que docker-compose esté en el PATH.
-          buildx-latest: false # Opcional, para evitar conflictos si Buildx no se usa intensivamente.
+      # === ELIMINA O COMENTA EL PASO 'Set up Docker' Y AÑADE ESTO ===
+      - name: Install Docker Compose (Fallback Method)
+        run: |
+          # Descarga la última versión de docker-compose v2 CLI (como plugin)
+          # Esto es equivalente a 'docker compose'
+          DOCKER_COMPOSE_VERSION="v2.27.1" # Puedes buscar la última versión en https://github.com/docker/compose/releases
+          mkdir -p ~/.docker/cli-plugins
+          curl -SL https://github.com/docker/compose/releases/download/${DOCKER_COMPOSE_VERSION}/docker-compose-linux-x86_64 -o ~/.docker/cli-plugins/docker-compose
+          chmod +x ~/.docker/cli-plugins/docker-compose
+          echo "Docker Compose installed successfully."
+          # Verifica la instalación
+          docker compose version
       # ==========================================================
-
       - name: Login to Docker Hub (Optional, if pushing images)
         uses: docker/login-action@v3
         with:
@@ -36,12 +42,10 @@ jobs:
 
       - name: Build Docker images
         run: |
-          # Usamos 'docker compose' (v2) en lugar de 'docker-compose' (v1)
           docker compose -f replicacion_postgresql/docker-compose.yml build
 
       - name: Start PostgreSQL services
         run: |
-          # Usamos 'docker compose' (v2) en lugar de 'docker-compose' (v1)
           docker compose -f replicacion_postgresql/docker-compose.yml up -d
 
       - name: Wait for PostgreSQL Master to be ready
@@ -70,8 +74,6 @@ jobs:
           echo "Waiting for pg-slave to be ready and replicate..."
           max_attempts=30
           attempt=0
-          # Nota: Quitar la condición 'client_addr' para simplificar la verificación de replicación
-          # y evitar problemas con IPs dinámicas.
           while ! docker exec pg-master psql -U postgres -d replicadb -c "SELECT count(*) FROM pg_stat_replication WHERE state='streaming';" | grep -q '1'; do
             echo "Slave not streaming yet. Waiting..."
             sleep 5
@@ -114,5 +116,4 @@ jobs:
         if: always()
         run: |
           echo "Tearing down Docker services..."
-          # Usamos 'docker compose' (v2) en lugar de 'docker-compose' (v1)
           docker compose -f replicacion_postgresql/docker-compose.yml down -v
