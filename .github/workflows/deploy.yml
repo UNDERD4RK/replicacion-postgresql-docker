@@ -5,28 +5,35 @@ name: Deploy PostgreSQL Replication
 on:
   push:
     branches:
-      - main # Ejecuta el workflow cuando hay un push a la rama 'main' (o 'master')
-  workflow_dispatch: # Permite ejecutar el workflow manualmente desde GitHub UI
+      - main
+  workflow_dispatch:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest # Elige un runner de GitHub Actions (una máquina virtual)
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4 # Clona tu repositorio
+        uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3 # Configura el constructor de Docker (opcional, para compilaciones más avanzadas)
+        uses: docker/setup-buildx-action@v3
 
-      - name: Set up Docker Compose
-        uses: docker/setup-docker@v3
-
+      # === REEMPLAZAR EL PASO 'Set up Docker Compose' CON ESTO ===
+      - name: Install Docker Compose
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y docker-compose-plugin # Instala la versión v2 (plugin)
+          # O para la versión v1 (menos común ahora):
+          # sudo curl -L "https://github.com/docker/compose/releases/download/1.29.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+          # sudo chmod +x /usr/local/bin/docker-compose
+          # sudo ln -s /usr/local/bin/docker-compose /usr/bin/docker-compose # Crear enlace simbólico
+      # ==========================================================
       - name: Login to Docker Hub (Optional, if pushing images)
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKER_USERNAME }} # Asegúrate de configurar estos secretos en GitHub
-          password: ${{ secrets.DOCKER_PASSWORD }} # Settings -> Secrets and variables -> Actions
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Build Docker images
         run: |
@@ -62,7 +69,13 @@ jobs:
           echo "Waiting for pg-slave to be ready and replicate..."
           max_attempts=30
           attempt=0
-          while ! docker exec pg-master psql -U postgres -d replicadb -c "SELECT count(*) FROM pg_stat_replication WHERE client_addr='${{ job.services.pg_slave.network.ip }}' AND state='streaming';" | grep -q '1'; do
+          # Nota: La verificación de IP dinámica en GitHub Actions es compleja en el mismo job.
+          # Una alternativa más simple para la verificación de replicación es esperar un tiempo
+          # y luego verificar directamente en el slave.
+          # O, si quieres mantener esta línea, asegúrate de que 'pg_slave' sea accesible por nombre de servicio
+          # dentro de la red Docker del runner.
+          # Para simplificar, podrías quitar la condición 'client_addr' y solo verificar 'state=streaming'.
+          while ! docker exec pg-master psql -U postgres -d replicadb -c "SELECT count(*) FROM pg_stat_replication WHERE state='streaming';" | grep -q '1'; do
             echo "Slave not streaming yet. Waiting..."
             sleep 5
             attempt=$((attempt+1))
@@ -76,7 +89,7 @@ jobs:
           # Si tienes pg-slave2:
           # echo "Waiting for pg-slave2 to be ready and replicate..."
           # attempt=0
-          # while ! docker exec pg-master psql -U postgres -d replicadb -c "SELECT count(*) FROM pg_stat_replication WHERE client_addr='${{ job.services.pg_slave2.network.ip }}' AND state='streaming';" | grep -q '1'; do
+          # while ! docker exec pg-master psql -U postgres -d replicadb -c "SELECT count(*) FROM pg_stat_replication WHERE state='streaming';" | grep -q '2'; do # Cambia a '2' si esperas 2 slaves
           #   echo "Slave2 not streaming yet. Waiting..."
           #   sleep 5
           #   attempt=$((attempt+1))
@@ -101,7 +114,7 @@ jobs:
           # docker exec pg-slave2 psql -U postgres -d tienda -c "SELECT * FROM productos;"
 
       - name: Teardown services
-        if: always() # Siempre ejecuta esto, incluso si los pasos anteriores fallan
+        if: always()
         run: |
           echo "Tearing down Docker services..."
           docker-compose -f replicacion_postgresql/docker-compose.yml down -v
