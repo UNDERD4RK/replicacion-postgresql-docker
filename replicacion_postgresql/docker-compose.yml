@@ -1,0 +1,58 @@
+services:
+  pg-master:
+    build: ./master
+    container_name: pg-master
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: replicadb
+    ports:
+      - "5432:5432"
+    volumes:
+      - master_data:/var/lib/postgresql/data
+      # Montamos el archivo de configuración customizado
+      - ./master/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+      # Montamos el archivo pg_hba.conf customizado
+      - ./master/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf -c hba_file=/etc/postgresql/pg_hba.conf
+    networks:
+      - pg-network
+
+  pg-slave:
+    build: ./slave
+    container_name: pg-slave
+    depends_on:
+      - pg-master
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5433:5432"
+    volumes:
+      - slave_data:/var/lib/postgresql/data
+    networks:
+      - pg-network
+
+  pg-slave2:
+    build: ./slave # Usa la misma imagen que el primer slave
+    container_name: pg-slave2
+    depends_on:
+      - pg-master # También depende del master
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5434:5432" # Un puerto diferente para acceder desde el host
+    volumes:
+      - slave2_data:/var/lib/postgresql/data # Un volumen de datos ÚNICO para este slave
+    networks:
+      - pg-network
+
+
+volumes:
+  master_data:
+  slave_data:
+  slave2_data:
+
+networks:
+  pg-network:

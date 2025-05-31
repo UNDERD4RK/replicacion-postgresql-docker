@@ -1,0 +1,104 @@
+# .github/workflows/deploy.yml
+
+name: Deploy PostgreSQL Replication
+
+on:
+  push:
+    branches:
+      - main # Ejecuta el workflow cuando hay un push a la rama 'main' (o 'master')
+  workflow_dispatch: # Permite ejecutar el workflow manualmente desde GitHub UI
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest # Elige un runner de GitHub Actions (una máquina virtual)
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4 # Clona tu repositorio
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3 # Configura el constructor de Docker (opcional, para compilaciones más avanzadas)
+
+      - name: Login to Docker Hub (Optional, if pushing images)
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }} # Asegúrate de configurar estos secretos en GitHub
+          password: ${{ secrets.DOCKER_PASSWORD }} # Settings -> Secrets and variables -> Actions
+
+      - name: Build Docker images
+        run: |
+          docker-compose -f replicacion_postgresql/docker-compose.yml build
+
+      - name: Start PostgreSQL services
+        run: |
+          docker-compose -f replicacion_postgresql/docker-compose.yml up -d
+
+      - name: Wait for PostgreSQL Master to be ready
+        run: |
+          echo "Waiting for pg-master to be ready..."
+          max_attempts=30
+          attempt=0
+          while ! docker exec pg-master pg_isready -h localhost -p 5432 -U postgres; do
+            echo "Master not ready yet. Waiting..."
+            sleep 5
+            attempt=$((attempt+1))
+            if [ "$attempt" -ge "$max_attempts" ]; then
+              echo "Master did not become ready in time. Exiting."
+              exit 1
+            fi
+          done
+          echo "pg-master is ready!"
+
+      - name: Verify Master Databases
+        run: |
+          echo "Verifying databases on pg-master..."
+          docker exec pg-master psql -U postgres -d replicadb -c "\l"
+
+      - name: Wait for PostgreSQL Slave(s) to be ready and replicate
+        run: |
+          echo "Waiting for pg-slave to be ready and replicate..."
+          max_attempts=30
+          attempt=0
+          while ! docker exec pg-master psql -U postgres -d replicadb -c "SELECT count(*) FROM pg_stat_replication WHERE client_addr='${{ job.services.pg_slave.network.ip }}' AND state='streaming';" | grep -q '1'; do
+            echo "Slave not streaming yet. Waiting..."
+            sleep 5
+            attempt=$((attempt+1))
+            if [ "$attempt" -ge "$max_attempts" ]; then
+              echo "Slave did not become streaming in time. Exiting."
+              exit 1
+            fi
+          done
+          echo "pg-slave is streaming!"
+
+          # Si tienes pg-slave2:
+          # echo "Waiting for pg-slave2 to be ready and replicate..."
+          # attempt=0
+          # while ! docker exec pg-master psql -U postgres -d replicadb -c "SELECT count(*) FROM pg_stat_replication WHERE client_addr='${{ job.services.pg_slave2.network.ip }}' AND state='streaming';" | grep -q '1'; do
+          #   echo "Slave2 not streaming yet. Waiting..."
+          #   sleep 5
+          #   attempt=$((attempt+1))
+          #   if [ "$attempt" -ge "$max_attempts" ]; then
+          #     echo "Slave2 did not become streaming in time. Exiting."
+          #     exit 1
+          #   fi
+          # done
+          # echo "pg-slave2 is streaming!"
+
+      - name: Verify Slave Databases
+        run: |
+          echo "Verifying databases on pg-slave..."
+          docker exec pg-slave psql -U postgres -d replicadb -c "\l"
+          docker exec pg-slave psql -U postgres -d tienda -c "\dt"
+          docker exec pg-slave psql -U postgres -d tienda -c "SELECT * FROM productos;"
+
+          # Si tienes pg-slave2:
+          # echo "Verifying databases on pg-slave2..."
+          # docker exec pg-slave2 psql -U postgres -d replicadb -c "\l"
+          # docker exec pg-slave2 psql -U postgres -d tienda -c "\dt"
+          # docker exec pg-slave2 psql -U postgres -d tienda -c "SELECT * FROM productos;"
+
+      - name: Teardown services
+        if: always() # Siempre ejecuta esto, incluso si los pasos anteriores fallan
+        run: |
+          echo "Tearing down Docker services..."
+          docker-compose -f replicacion_postgresql/docker-compose.yml down -v
