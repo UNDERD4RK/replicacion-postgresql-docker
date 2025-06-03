@@ -48,11 +48,27 @@ services:
     networks:
       - pg-network
 
+  mysql-db:
+    image: mysql:8.0 # Usamos la versión 8.0 de MySQL
+    container_name: mysql-db
+    environment:
+      MYSQL_ROOT_PASSWORD: root_password # Contraseña para el usuario root de MySQL
+      MYSQL_DATABASE: tienda_mysql # Nombre de la base de datos en MySQL
+      MYSQL_USER: user_mysql # Usuario para la nueva base de datos
+      MYSQL_PASSWORD: password_mysql # Contraseña para el nuevo usuario
+    ports:
+      - "3306:3306" # Mapea el puerto 3306 del contenedor al 3306 de tu máquina
+    volumes:
+      - mysql_data:/var/lib/mysql # Volumen para la persistencia de datos de MySQL
+    networks:
+      - pg-network # Para que pueda comunicarse con PostgreSQL si es necesario
+
 
 volumes:
   master_data:
   slave_data:
   slave2_data:
+  mysql_data:
 
 networks:
   pg-network:
