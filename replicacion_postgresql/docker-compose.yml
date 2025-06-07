@@ -63,12 +63,29 @@ services:
     networks:
       - pg-network # Para que pueda comunicarse con PostgreSQL si es necesario
 
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@admin.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "8080:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      - pg-master
+    networks:
+      - pg-network
+
+  
 
 volumes:
   master_data:
   slave_data:
   slave2_data:
   mysql_data:
+  pgadmin_data:
 
 networks:
   pg-network:

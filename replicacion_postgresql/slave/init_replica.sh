@@ -25,3 +25,5 @@ fi
 # Lo llamamos aquí para que el servidor PostgreSQL inicie,
 # ya sea que se haya hecho un pg_basebackup o que los datos ya existieran.
 exec docker-entrypoint.sh postgres -c hot_standby=on
+
+pg_basebackup -h pg-master -D "$DATA_DIR" -U replicator ...
